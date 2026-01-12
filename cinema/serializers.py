@@ -1,3 +1,4 @@
+from django.db import transaction
 from rest_framework import serializers, validators
 
 from cinema.models import (
@@ -96,9 +97,20 @@ class TicketSerializer(serializers.ModelSerializer):
         validators = [
             validators.UniqueTogetherValidator(
                 Ticket.objects.all(),
-                fields=("row", "seat")
+                fields=("row", "seat", "movie_session")
             )
         ]
+
+
+class TicketRetrieveSerializer(TicketSerializer):
+
+    class Meta:
+        model = Ticket
+        fields = (
+            "row",
+            "seat",
+            "movie_session",
+        )
 
 
 class MovieSessionDetailSerializer(MovieSessionSerializer):
@@ -117,8 +129,18 @@ class MovieSessionDetailSerializer(MovieSessionSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
 
-    tickets = TicketSerializer(many=True, read_only=True)
+    tickets = TicketRetrieveSerializer(many=True, read_only=False)
 
     class Meta:
         model = Order
         fields = ("id", "tickets", "created_at")
+
+    def create(self, validated_data: dict) -> Order:
+        with transaction.atomic():
+            tickets_data = validated_data.pop("tickets")
+            order = Order.objects.create(**validated_data)
+
+            for ticket_data in tickets_data:
+                Ticket.objects.create(order=order, **ticket_data)
+
+            return order
